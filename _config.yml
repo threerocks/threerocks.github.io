@@ -3,17 +3,19 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: Hexo
+title: 刘小磊的技术博客
 subtitle: ''
 description: ''
 keywords:
-author: John Doe
-language: en
-timezone: ''
+author: 刘小磊
+language:
+  - zh-tw
+  - en
+timezone: 'Asia/Shanghai'
 
 # URL
 ## Set your site url here. For example, if you use GitHub Page, set url as 'https://username.github.io/project'
-url: http://example.com
+url: https://threerocks.github.io/
 permalink: :year/:month/:day/:title/
 permalink_defaults:
 pretty_urls:
@@ -97,7 +99,7 @@ ignore:
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: landscape
+theme: bubuzou
 
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
@@ -105,3 +107,14 @@ deploy:
   type: git
   repo: https://github.com/threerocks/threerocks.github.io.git
   branch: master
+
+# search
+search:
+  path: search.xml
+  field: post
+
+archive_generator:
+    per_page: 0
+    yearly: false
+    monthly: false
+    daily: false

@@ -1,0 +1,268 @@
+<!DOCTYPE html><html lang="zh-tw,en,default"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><meta name="baidu-site-verification" content="1EB8XoOl0C"><meta name="google-site-verification" content="K7thEgdLm0UfRWJ5MGdF7sCcjClSzAlxFLPv2Oz5CGM"><title> Redis应用实战 - 秒杀场景（Node.js版本） · 刘小磊的技术博客</title><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Redis应用实战 - 秒杀场景（Node.js版本） - 刘小磊"><meta name="keywords"><meta name="author" content="刘小磊"><link rel="short icon" href="https://qiniu2.rrdnyyy.com/blog/a5ktx-bmwk7-002.ico"><link rel="stylesheet" href="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/bubuzou.css"><link rel="search" type="application/opensearchdescription+xml" href="https://threerocks.github.io/atom.xml" title="刘小磊的技术博客"><script src="//cdn1.lncld.net/static/js/3.0.4/av-min.js"></script>
+<script src='//unpkg.com/valine/dist/Valine.min.js'></script><meta name="generator" content="Hexo 5.4.0"><link rel="alternate" href="/atom.xml" title="刘小磊的技术博客" type="application/atom+xml">
+</head><body><header><div class="header row"> <a href="/" class="logo-link"><img src="https://qiniu2.rrdnyyy.com/blog/WechatIMG139.jpg"></a><ul id="nav_list" class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" data-hover="博文" class="nav-list-link">博文</a></li><li class="nav-list-item"><a href="/archives/" target="_self" data-hover="归档" class="nav-list-link">归档</a></li><li class="nav-list-item"><a href="/categories/live/" target="_self" data-hover="生活" class="nav-list-link">生活</a></li><li class="nav-list-item"><a href="/categories/read/" target="_self" data-hover="读书" class="nav-list-link">读书</a></li><li class="nav-list-item"><a href="/about/" target="_self" data-hover="关于" class="nav-list-link">关于</a></li></ul><div class="search"><a id="search_btn" href="#search"></a></div><div id="nav_btn" class="nav-btn"><span></span><span></span><span></span></div></div></header><div class="row scroll-con"><section class="container"><!-- for archive page--><div id="postAr" class="post"><article class="post-block"><h1 class="post-title">Redis应用实战 - 秒杀场景（Node.js版本）</h1><div class="post-info">2021-06-25<p class="visit"><i data-identity="2021/06/25/Redis应用实战 - 秒杀场景（Node.js版本）/" class="article-timer"></i><span>次访问</span></p></div><div class="post-content"><h2 id="写在前面"><a href="#写在前面" class="headerlink" title="写在前面"></a>写在前面</h2><p>公司随着业务量的增加，最近用时几个月时间在项目中全面接入<code>Redis</code>，开发过程中发现市面上缺少具体的实战资料，尤其是在<code>Node.js</code>环境下，能找到的资料要么过于简单入门，要么名不副实，大部分都是属于初级。因此决定把公司这段时间的成果进行分享，会用几篇文章详细介绍<code>Redis</code>的几个使用场景，期望大家一起学习、进步。<br>下面就开始第一篇，秒杀场景。</p>
+<h2 id="业务分析"><a href="#业务分析" class="headerlink" title="业务分析"></a>业务分析</h2><p>实际业务中，秒杀包含了许多场景，具体可以分为秒杀前、秒杀中和秒杀后三个阶段，从开发角度具体分析如下：</p>
+<ol>
+<li>秒杀前：主要是做好缓存工作，以应对用户频繁的访问，因为数据是固定的，可以把商品详情页的元素静态化，然后用<code>CDN</code>或者是浏览器进行缓存。</li>
+<li>秒杀中：主要是库存查验，库存扣减和订单处理，这一步的特点是<ul>
+<li>短时间内大量用户同时进行抢购，系统的流量突然激增，服务器压力瞬间增大（瞬时并发访问高）</li>
+<li>请求数量大于商品库存，比如10000个用户抢购，但是库存只有100</li>
+<li>限定用户只能在一定时间段内购买</li>
+<li>限制单个用户购买数量，避免刷单</li>
+<li>抢购是跟数据库打交道，核心功能是下单，库存不能扣成负数</li>
+<li>对数据库的操作读多写少，而且读操作相对简单</li>
+</ul>
+</li>
+<li>秒杀后：主要是一些用户查看已购订单、处理退款和处理物流等等操作，这时候用户请求量已经下降，操作也相对简单，服务器压力不大。</li>
+</ol>
+<p>根据上述分析，本文把重点放在秒杀中的开发讲解，其他部分感兴趣的小伙伴可以自己搜索资料，进行尝试。</p>
+<h2 id="开发环境"><a href="#开发环境" class="headerlink" title="开发环境"></a>开发环境</h2><p>数据库：<code>Redis 3.2.9</code> + <code>Mysql 5.7.18</code><br>服务器：<code>Node.js v10.15.0</code><br>测试工具：<code>Jmeter-5.4.1</code></p>
+<span id="more"></span>
+
+<h2 id="实战"><a href="#实战" class="headerlink" title="实战"></a>实战</h2><h3 id="数据库准备"><a href="#数据库准备" class="headerlink" title="数据库准备"></a>数据库准备</h3><p><img src="media/16239877134495/tables.jpg" alt="tables"><br>如图所示，<code>Mysql</code>中需要创建三张表，分别是</p>
+<ul>
+<li>产品表，用于记录产品信息，字段分别为Id、名称、缩略图、价格和状态等等</li>
+<li>秒杀活动表，用于记录秒杀活动的详细信息，字段分别为Id、参与秒杀的产品Id、库存量、秒杀开始时间、秒杀结束时间和秒杀活动是否有效等等</li>
+<li>订单表，用于记录下单后的数据，字段分别为Id、订单号、产品Id、购买用户Id、订单状态、订单类型和秒杀活动Id等等</li>
+</ul>
+<p>下面是创建<code>sql</code>语句，以供参考</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `scekill_goods` (</span><br><span class="line">	`id` <span class="type">INTEGER</span> <span class="keyword">NOT</span> <span class="keyword">NULL</span> auto_increment,</span><br><span class="line">	`fk_good_id` <span class="type">INTEGER</span>,</span><br><span class="line">	`amount` <span class="type">INTEGER</span>,</span><br><span class="line">	`start_time` DATETIME,</span><br><span class="line">	`end_time` DATETIME,</span><br><span class="line">	`is_valid` TINYINT ( <span class="number">1</span> ),</span><br><span class="line">	`comment` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`created_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line">	`updated_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line"><span class="keyword">PRIMARY</span> KEY ( `id` ) </span><br><span class="line">) ENGINE <span class="operator">=</span> INNODB <span class="keyword">DEFAULT</span> CHARSET <span class="operator">=</span> utf8mb4;</span><br></pre></td></tr></table></figure>
+
+
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `orders` (</span><br><span class="line">	`id` <span class="type">INTEGER</span> <span class="keyword">NOT</span> <span class="keyword">NULL</span> auto_increment,</span><br><span class="line">	`order_no` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`good_id` <span class="type">INTEGER</span>,</span><br><span class="line">	`user_id` <span class="type">INTEGER</span>,</span><br><span class="line">	`status` ENUM ( <span class="string">&#x27;-1&#x27;</span>, <span class="string">&#x27;0&#x27;</span>, <span class="string">&#x27;1&#x27;</span>, <span class="string">&#x27;2&#x27;</span> ),</span><br><span class="line">	`order_type` ENUM ( <span class="string">&#x27;1&#x27;</span>, <span class="string">&#x27;2&#x27;</span> ),</span><br><span class="line">	`scekill_id` <span class="type">INTEGER</span>,</span><br><span class="line">	`comment` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`created_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line">	`updated_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line"><span class="keyword">PRIMARY</span> KEY ( `id` ) </span><br><span class="line">) ENGINE <span class="operator">=</span> INNODB <span class="keyword">DEFAULT</span> CHARSET <span class="operator">=</span> utf8mb4;</span><br></pre></td></tr></table></figure>
+
+
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> <span class="keyword">TABLE</span> `goods` (</span><br><span class="line">	`id` <span class="type">INTEGER</span> <span class="keyword">NOT</span> <span class="keyword">NULL</span> auto_increment,</span><br><span class="line">	`name` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`thumbnail` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`price` <span class="type">INTEGER</span>,</span><br><span class="line">	`status` TINYINT ( <span class="number">1</span> ),</span><br><span class="line">	`stock` <span class="type">INTEGER</span>,</span><br><span class="line">	`stock_left` <span class="type">INTEGER</span>,</span><br><span class="line">	`description` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`comment` <span class="type">VARCHAR</span> ( <span class="number">255</span> ),</span><br><span class="line">	`created_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line">	`updated_at` DATETIME <span class="keyword">NOT</span> <span class="keyword">NULL</span>,</span><br><span class="line"><span class="keyword">PRIMARY</span> KEY ( `id` ) </span><br><span class="line">) ENGINE <span class="operator">=</span> INNODB <span class="keyword">DEFAULT</span> CHARSET <span class="operator">=</span> utf8mb4;</span><br></pre></td></tr></table></figure>
+<p>产品表在此次业务中不是重点，以下逻辑都以<code>id=1</code>的产品为示例，请悉知。<br>秒杀活动表中创建一条库存为200的记录，作为秒杀测试数据，参考下面语句：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">INSERT</span> <span class="keyword">INTO</span> `redis_app`.`seckill_goods` (</span><br><span class="line">	`id`,</span><br><span class="line">	`fk_good_id`,</span><br><span class="line">	`amount`,</span><br><span class="line">	`start_time`,</span><br><span class="line">	`end_time`,</span><br><span class="line">	`is_valid`,</span><br><span class="line">	`comment`,</span><br><span class="line">	`created_at`,</span><br><span class="line">	`updated_at` </span><br><span class="line">)</span><br><span class="line"><span class="keyword">VALUES</span></span><br><span class="line">	(</span><br><span class="line">		<span class="number">1</span>,</span><br><span class="line">		<span class="number">1</span>,</span><br><span class="line">		<span class="number">200</span>,</span><br><span class="line">		<span class="string">&#x27;2020-06-20 00:00:00&#x27;</span>,</span><br><span class="line">		<span class="string">&#x27;2023-06-20 00:00:00&#x27;</span>,</span><br><span class="line">		<span class="number">1</span>,</span><br><span class="line">		<span class="string">&#x27;...&#x27;</span>,</span><br><span class="line">		<span class="string">&#x27;2020-06-20 00:00:00&#x27;</span>,</span><br><span class="line">		<span class="string">&#x27;2021-06-22 10:18:16&#x27;</span> </span><br><span class="line">	);</span><br></pre></td></tr></table></figure>
+
+<h3 id="秒杀接口开发"><a href="#秒杀接口开发" class="headerlink" title="秒杀接口开发"></a>秒杀接口开发</h3><p>首先，说一下<code>Node.js</code>中的具体开发环境:</p>
+<ul>
+<li><code>web</code>框架使用<code>Koa2</code></li>
+<li><code>mysql</code>操作使用基于<code>promise</code>的<code>Node.js</code> <code>ORM</code>工具<code>Sequelize</code></li>
+<li><code>redis</code>操作使用<code>ioredis</code>库</li>
+<li>封装<code>ctx.throwException</code>方法用于处理错误，封装<code>ctx.send</code>方法用于返回正确结果，具体实现参考文末完整代码</li>
+</ul>
+<p>其次，分析一下接口要处理的逻辑，大概步骤和顺序如下：</p>
+<ol>
+<li>基本参数校验</li>
+<li>判断产品是否加入了抢购</li>
+<li>判断秒杀活动是否有效</li>
+<li>判断秒杀活动是否开始、结束</li>
+<li>判断秒杀商品是否卖完</li>
+<li>获取登录用户信息</li>
+<li>判断登录用户是否已抢到</li>
+<li>扣库存</li>
+<li>下单</li>
+</ol>
+<p>最后，根据分析把以上步骤用代码进行初步实现，如下：</p>
+<figure class="highlight js"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 引入moment库处理时间相关数据</span></span><br><span class="line"><span class="keyword">const</span> moment = <span class="built_in">require</span>(<span class="string">&#x27;moment&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入数据库model文件</span></span><br><span class="line"><span class="keyword">const</span> seckillModel = <span class="built_in">require</span>(<span class="string">&#x27;../../dbs/mysql/models/seckill_goods&#x27;</span>);</span><br><span class="line"><span class="keyword">const</span> ordersModel = <span class="built_in">require</span>(<span class="string">&#x27;../../dbs/mysql/models/orders&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入工具函数或工具类</span></span><br><span class="line"><span class="keyword">const</span> UserModule = <span class="built_in">require</span>(<span class="string">&#x27;../modules/user&#x27;</span>);</span><br><span class="line"><span class="keyword">const</span> &#123; random_String &#125; = <span class="built_in">require</span>(<span class="string">&#x27;../../utils/tools/funcs&#x27;</span>);</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Seckill</span> </span>&#123;</span><br><span class="line">  <span class="comment">/**</span></span><br><span class="line"><span class="comment">   * 秒杀接口</span></span><br><span class="line"><span class="comment">   * </span></span><br><span class="line"><span class="comment">   * <span class="doctag">@method <span class="variable">post</span></span></span></span><br><span class="line"><span class="comment">   * <span class="doctag">@param </span>good_id 产品id</span></span><br><span class="line"><span class="comment">   * <span class="doctag">@param </span>accessToken 用户Token</span></span><br><span class="line"><span class="comment">   * <span class="doctag">@param </span>path 秒杀完成后跳转路径</span></span><br><span class="line"><span class="comment">   */</span></span><br><span class="line">  <span class="keyword">async</span> <span class="function"><span class="title">doSeckill</span>(<span class="params">ctx, next</span>)</span> &#123;</span><br><span class="line">    <span class="keyword">const</span> body = ctx.request.body;</span><br><span class="line">    <span class="keyword">const</span> accessToken = ctx.query.accessToken;</span><br><span class="line">    <span class="keyword">const</span> path = body.path;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 基本参数校验</span></span><br><span class="line">    <span class="keyword">if</span> (!accessToken || !path) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">20001</span>, <span class="string">&#x27;参数错误！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判断此产品是否加入了抢购</span></span><br><span class="line">    <span class="keyword">const</span> seckill = <span class="keyword">await</span> seckillModel.findOne(&#123;</span><br><span class="line">      <span class="attr">where</span>: &#123;</span><br><span class="line">        <span class="attr">fk_good_id</span>: ctx.params.good_id,</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;);</span><br><span class="line">    <span class="keyword">if</span> (!seckill) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30002</span>, <span class="string">&#x27;该产品并未有抢购活动！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判断是否有效</span></span><br><span class="line">    <span class="keyword">if</span> (!seckill.is_valid) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30003</span>, <span class="string">&#x27;该活动已结束！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判单是否开始、结束</span></span><br><span class="line">    <span class="keyword">if</span>(moment().isBefore(moment(seckill.start_time))) &#123;</span><br><span class="line">      <span class="keyword">return</span> ctx.throwException(<span class="number">30004</span>, <span class="string">&#x27;该抢购活动还未开始！&#x27;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span>(moment().isAfter(moment(seckill.end_time))) &#123;</span><br><span class="line">      <span class="keyword">return</span> ctx.throwException(<span class="number">30005</span>, <span class="string">&#x27;该抢购活动已经结束！&#x27;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 判断是否卖完</span></span><br><span class="line">    <span class="keyword">if</span>(seckill.amount &lt; <span class="number">1</span>) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30006</span>, <span class="string">&#x27;该产品已经卖完了！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//获取登录用户信息(这一步只是简单模拟验证用户身份，实际开发中要有严格的accessToken校验流程)</span></span><br><span class="line">    <span class="keyword">const</span> userInfo = <span class="keyword">await</span> UserModule.getUserInfo(accessToken);</span><br><span class="line">    <span class="keyword">if</span> (!userInfo) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">10002</span>, <span class="string">&#x27;用户不存在！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 判断登录用户是否已抢到（一个用户针对这次活动只能购买一次）</span></span><br><span class="line">    <span class="keyword">const</span> orderInfo = <span class="keyword">await</span> ordersModel.findOne(&#123;</span><br><span class="line">      <span class="attr">where</span>: &#123;</span><br><span class="line">        <span class="attr">user_id</span>: userInfo.id,</span><br><span class="line">        <span class="attr">seckill_id</span>: seckill.id,</span><br><span class="line">      &#125;,</span><br><span class="line">    &#125;);</span><br><span class="line">    <span class="keyword">if</span> (orderInfo) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30007</span>, <span class="string">&#x27;该用户已抢到该产品，无需再抢！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 扣库存</span></span><br><span class="line">    <span class="keyword">const</span> count = <span class="keyword">await</span> seckill.decrement(<span class="string">&#x27;amount&#x27;</span>);</span><br><span class="line">    <span class="keyword">if</span> (count.amount &lt;= <span class="number">0</span>) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30006</span>, <span class="string">&#x27;该产品已经卖完了！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 下单</span></span><br><span class="line">    <span class="keyword">const</span> orderData = &#123;</span><br><span class="line">      <span class="attr">order_no</span>: <span class="built_in">Date</span>.now() + random_String(<span class="number">4</span>), <span class="comment">// 这里就用当前时间戳加4位随机数作为订单号，实际开发中根据业务规划逻辑 </span></span><br><span class="line">      <span class="attr">good_id</span>: ctx.params.good_id,</span><br><span class="line">      <span class="attr">user_id</span>: userInfo.id,</span><br><span class="line">      <span class="attr">status</span>: <span class="string">&#x27;1&#x27;</span>, <span class="comment">// -1 已取消, 0 未付款， 1 已付款， 2已退款</span></span><br><span class="line">      <span class="attr">order_type</span>: <span class="string">&#x27;2&#x27;</span>, <span class="comment">// 1 常规订单 2 秒杀订单</span></span><br><span class="line">      <span class="attr">seckill_id</span>: seckill.id, <span class="comment">// 秒杀活动id</span></span><br><span class="line">      <span class="attr">comment</span>: <span class="string">&#x27;&#x27;</span>, <span class="comment">// 备注</span></span><br><span class="line">    &#125;;</span><br><span class="line">    <span class="keyword">const</span> order = ordersModel.create(orderData);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (!order) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30008</span>, <span class="string">&#x27;抢购失败!&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    ctx.send(&#123;</span><br><span class="line">      path,</span><br><span class="line">      <span class="attr">data</span>: <span class="string">&#x27;抢购成功!&#x27;</span></span><br><span class="line">    &#125;);</span><br><span class="line"></span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="built_in">module</span>.exports = <span class="keyword">new</span> Seckill();</span><br></pre></td></tr></table></figure>
+
+<p>至此，秒杀接口用传统的关系型数据库就实现完成了，代码并不复杂，注释也很详细，不用特别的讲解大家也都能看懂，那它能不能正常工作呢，答案显然是否定的<br>通过<code>Jmeter</code>模拟以下测试：</p>
+<ul>
+<li>模拟5000并发下2000个用户进行秒杀，会发现<code>mysql</code>报出<code>timeout</code>错误，同时<code>seckill_goods</code>表<code>amount</code>字段变成负数，<code>orders</code>表中同样产生了多于200的记录（具体数据不同环境下会有差异），这就代表产生了超卖，跟秒杀规则不符</li>
+<li>模拟10000并发下单个用户进行秒杀，<code>orders</code>表中产生了多于1条的记录（具体数据不同环境下会有差异），这就说明一个用户针对这次活动买了多次，跟秒杀规则不符</li>
+</ul>
+<p>分析下代码会发现这其中的问题：</p>
+<ul>
+<li><p>步骤2，判断此产品是否加入了抢购   </p>
+<p>  直接在<code>mysql</code>中查询，因为是在秒杀场景下，并发会很高，大量的请求到数据库，显然mysql是扛不住的，毕竟<code>mysql</code>每秒只能支撑千级别的并发请求</p>
+</li>
+<li><p>步骤7，判断登录用户是否已抢到   </p>
+<p>  在高并发下同一个用户上个订单还没有生成成功，再次判断是否抢到依然会判断为否，这种情况下代码并没有对扣减和下单操作做任何限制，因此就产生了单个用户购买多个产品的情况，跟一个用户针对这次活动只能购买一次的要求不符</p>
+</li>
+<li><p>步骤8，扣库存操作   </p>
+<p>  假设同时有1000个请求，这1000个请求在步骤5判断产品是否秒杀完的时候查询到的库存都是200，因此这些请求都会执行步骤8扣减库存，那库存肯定会变成负数，也就是产生了超卖现象</p>
+</li>
+</ul>
+<h3 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h3><p>经过分析得到三个问题需要解决：</p>
+<ol>
+<li>秒杀数据需要支持高并发访问</li>
+<li>一个用户针对这次活动只能购买一次的问题，也就是限购问题</li>
+<li>减库存不能扣成负数，订单数不能超过设置的库存数，也就是超卖问题</li>
+</ol>
+<p><code>Redis</code>作为内存型数据库，本身高速处理请求的特性可以支持高并发。针对超卖，也就是库存扣减变负数情况，<code>Redis</code>可以提供<code>Lua</code>脚本保证原子性和分布式锁两个解决高并发下数据不一致的问题。针对一个用户只能购买一次的要求，<code>Redis</code>的分布式锁可以解决问题。<br>因此，可以尝试用Redis解决上述问题，具体操作：</p>
+<ul>
+<li><p>为了支撑大量高并发的库存查验请求，需要用<code>Redis</code>保存秒杀活动数据（即<code>seckill_goods</code>表数据），这样一来请求可以直接从<code>Redis</code>中读取库存并进行查询，完成查询之后如果还有库存余量，就直接从<code>Redis</code>中扣除库存</p>
+</li>
+<li><p>扣减库存操作在<code>Redis</code>中进行，但是因为<code>Redis</code>扣减这一操作是分为读和写两个步骤，也就是必须先读数据进行判断再执行减操作，因此如果对这两个操作没有做好控制，就导致数据被改错，依然会出现超卖现象，为了保证并发访问的正确性需要使用原子操作解决问题，<code>Redis</code>提供了使用<code>Lua</code>脚本包含多个操作来实现原子性的方案<br>以下是<code>Redis</code>官方文档对<code>Lua</code>脚本原子性的解释</p>
+<blockquote>
+<p>Atomicity of scripts<br>  Redis uses the same Lua interpreter to run all the commands. Also Redis guarantees that a script is executed in an atomic way: no other script or Redis command will be executed while a script is being executed. This semantic is similar to the one of MULTI / EXEC. From the point of view of all the other clients the effects of a script are either still not visible or already completed.</p>
+</blockquote>
+</li>
+<li><p>使用<code>Redis</code>实现分布式锁，对扣库存和写订单操作进行加锁，以保证一个用户只能购买一次的问题。</p>
+</li>
+</ul>
+<h3 id="接入Redis"><a href="#接入Redis" class="headerlink" title="接入Redis"></a>接入Redis</h3><p>首先，不再使用<code>seckill_goods</code>表，新增秒杀活动逻辑变为在<code>Redis</code>中插入数据，类型为<code>hash</code>类型，<code>key</code>规则为<code>seckill_good_ + 产品id</code>，现在假设新增一条<code>key</code>为<code>seckill_good_1</code>的记录，值为</p>
+<figure class="highlight js"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="attr">amount</span>: <span class="number">200</span>,</span><br><span class="line">    <span class="attr">start_time</span>: <span class="string">&#x27;2020-06-20 00:00:00&#x27;</span>,</span><br><span class="line">    <span class="attr">end_time</span>: <span class="string">&#x27;2023-06-20 00:00:00&#x27;</span>,</span><br><span class="line">    <span class="attr">is_valid</span>: <span class="number">1</span>,</span><br><span class="line">    <span class="attr">comment</span>: <span class="string">&#x27;...&#x27;</span>,</span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+<p>其次，创建<code>lua</code>脚本保证扣减操作的原子性，脚本内容如下</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (redis.call(<span class="string">&#x27;hexists&#x27;</span>, KEYS[<span class="number">1</span>], KEYS[<span class="number">2</span>]) == <span class="number">1</span>) <span class="keyword">then</span></span><br><span class="line">  <span class="keyword">local</span> stock = <span class="built_in">tonumber</span>(redis.call(<span class="string">&#x27;hget&#x27;</span>, KEYS[<span class="number">1</span>], KEYS[<span class="number">2</span>]));</span><br><span class="line">  <span class="keyword">if</span> (stock &gt; <span class="number">0</span>) <span class="keyword">then</span></span><br><span class="line">    redis.call(<span class="string">&#x27;hincrby&#x27;</span>,  KEYS[<span class="number">1</span>], KEYS[<span class="number">2</span>], <span class="number">-1</span>);</span><br><span class="line">    <span class="keyword">return</span> stock</span><br><span class="line">  <span class="keyword">end</span>;</span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"><span class="keyword">end</span>;</span><br></pre></td></tr></table></figure>
+<p>最后，完成代码，完整代码如下：</p>
+<figure class="highlight js"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 引入相关库</span></span><br><span class="line"><span class="keyword">const</span> moment = <span class="built_in">require</span>(<span class="string">&#x27;moment&#x27;</span>);</span><br><span class="line"><span class="keyword">const</span> Op = <span class="built_in">require</span>(<span class="string">&#x27;sequelize&#x27;</span>).Op;</span><br><span class="line"><span class="keyword">const</span> &#123; <span class="attr">v4</span>: uuidv4 &#125; = <span class="built_in">require</span>(<span class="string">&#x27;uuid&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入数据库model文件</span></span><br><span class="line"><span class="keyword">const</span> seckillModel = <span class="built_in">require</span>(<span class="string">&#x27;../../dbs/mysql/models/seckill_goods&#x27;</span>);</span><br><span class="line"><span class="keyword">const</span> ordersModel = <span class="built_in">require</span>(<span class="string">&#x27;../../dbs/mysql/models/orders&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入Redis实例</span></span><br><span class="line"><span class="keyword">const</span> redis = <span class="built_in">require</span>(<span class="string">&#x27;../../dbs/redis&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入工具函数或工具类</span></span><br><span class="line"><span class="keyword">const</span> UserModule = <span class="built_in">require</span>(<span class="string">&#x27;../modules/user&#x27;</span>);</span><br><span class="line"><span class="keyword">const</span> &#123; randomString, checkObjNull &#125; = <span class="built_in">require</span>(<span class="string">&#x27;../../utils/tools/funcs&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入秒杀key前缀</span></span><br><span class="line"><span class="keyword">const</span> &#123; SECKILL_GOOD, LOCK_KEY &#125; = <span class="built_in">require</span>(<span class="string">&#x27;../../utils/constants/redis-prefixs&#x27;</span>);</span><br><span class="line"><span class="comment">// 引入避免超卖lua脚本</span></span><br><span class="line"><span class="keyword">const</span> &#123; stock, lock, unlock &#125; = <span class="built_in">require</span>(<span class="string">&#x27;../../utils/scripts&#x27;</span>);</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Seckill</span> </span>&#123;</span><br><span class="line">  <span class="keyword">async</span> <span class="function"><span class="title">doSeckill</span>(<span class="params">ctx, next</span>)</span> &#123;</span><br><span class="line">    <span class="keyword">const</span> body = ctx.request.body;</span><br><span class="line">    <span class="keyword">const</span> goodId = ctx.params.good_id;</span><br><span class="line">    <span class="keyword">const</span> accessToken = ctx.query.accessToken;</span><br><span class="line">    <span class="keyword">const</span> path = body.path;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 基本参数校验</span></span><br><span class="line">    <span class="keyword">if</span> (!accessToken || !path) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">20001</span>, <span class="string">&#x27;参数错误！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判断此产品是否加入了抢购</span></span><br><span class="line">    <span class="keyword">const</span> key = <span class="string">`<span class="subst">$&#123;SECKILL_GOOD&#125;</span><span class="subst">$&#123;goodId&#125;</span>`</span>;</span><br><span class="line">    <span class="keyword">const</span> seckill = <span class="keyword">await</span> redis.hgetall(key);</span><br><span class="line">    <span class="keyword">if</span> (!checkObjNull(seckill)) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30002</span>, <span class="string">&#x27;该产品并未有抢购活动！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判断是否有效</span></span><br><span class="line">    <span class="keyword">if</span> (!seckill.is_valid) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30003</span>, <span class="string">&#x27;该活动已结束！&#x27;</span>); &#125;;</span><br><span class="line">    <span class="comment">// 判单是否开始、结束</span></span><br><span class="line">    <span class="keyword">if</span>(moment().isBefore(moment(seckill.start_time))) &#123;</span><br><span class="line">      <span class="keyword">return</span> ctx.throwException(<span class="number">30004</span>, <span class="string">&#x27;该抢购活动还未开始！&#x27;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span>(moment().isAfter(moment(seckill.end_time))) &#123;</span><br><span class="line">      <span class="keyword">return</span> ctx.throwException(<span class="number">30005</span>, <span class="string">&#x27;该抢购活动已经结束！&#x27;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 判断是否卖完</span></span><br><span class="line">    <span class="keyword">if</span>(seckill.amount &lt; <span class="number">1</span>) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30006</span>, <span class="string">&#x27;该产品已经卖完了！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//获取登录用户信息(这一步只是简单模拟验证用户身份，实际开发中要有严格的登录注册校验流程)</span></span><br><span class="line">    <span class="keyword">const</span> userInfo = <span class="keyword">await</span> UserModule.getUserInfo(accessToken);</span><br><span class="line">    <span class="keyword">if</span> (!userInfo) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">10002</span>, <span class="string">&#x27;用户不存在！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 判断登录用户是否已抢到</span></span><br><span class="line">    <span class="keyword">const</span> orderInfo = <span class="keyword">await</span> ordersModel.findOne(&#123;</span><br><span class="line">      <span class="attr">where</span>: &#123;</span><br><span class="line">        <span class="attr">user_id</span>: userInfo.id,</span><br><span class="line">        <span class="attr">good_id</span>: goodId,</span><br><span class="line">        <span class="attr">status</span>: &#123; [Op.between]: [<span class="string">&#x27;0&#x27;</span>, <span class="string">&#x27;1&#x27;</span>] &#125;,</span><br><span class="line">      &#125;,</span><br><span class="line">    &#125;);</span><br><span class="line">    <span class="keyword">if</span> (orderInfo) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30007</span>, <span class="string">&#x27;该用户已抢到该产品，无需再抢！&#x27;</span>); &#125;;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 加锁，实现一个用户针对这次活动只能购买一次</span></span><br><span class="line">    <span class="keyword">const</span> lockKey = <span class="string">`<span class="subst">$&#123;LOCK_KEY&#125;</span><span class="subst">$&#123;userInfo.id&#125;</span>:<span class="subst">$&#123;goodId&#125;</span>`</span>; <span class="comment">// 锁的key有用户id和商品id组成</span></span><br><span class="line">    <span class="keyword">const</span> uuid = uuidv4();</span><br><span class="line">    <span class="keyword">const</span> expireTime = moment(seckill.end_time).diff(moment(), <span class="string">&#x27;minutes&#x27;</span>); <span class="comment">// 锁存在时间为当前时间和活动结束的时间差</span></span><br><span class="line">    <span class="keyword">const</span> tryLock = <span class="keyword">await</span> redis.eval(lock, <span class="number">2</span>, [lockKey, <span class="string">&#x27;releaseTime&#x27;</span>, uuid, expireTime]);</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">      <span class="keyword">if</span> (tryLock === <span class="number">1</span>) &#123;</span><br><span class="line">        <span class="comment">// 扣库存</span></span><br><span class="line">        <span class="keyword">const</span> count = <span class="keyword">await</span> redis.eval(stock, <span class="number">2</span>, [key, <span class="string">&#x27;amount&#x27;</span>, <span class="string">&#x27;&#x27;</span>, <span class="string">&#x27;&#x27;</span>]);</span><br><span class="line">        <span class="keyword">if</span> (count &lt;= <span class="number">0</span>) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30006</span>, <span class="string">&#x27;该产品已经卖完了！&#x27;</span>); &#125;;</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 下单</span></span><br><span class="line">        <span class="keyword">const</span> orderData = &#123;</span><br><span class="line">          <span class="attr">order_no</span>: <span class="built_in">Date</span>.now() + randomString(<span class="number">4</span>), <span class="comment">// 这里就用当前时间戳加4位随机数作为订单号，实际开发中根据业务规划逻辑 </span></span><br><span class="line">          <span class="attr">good_id</span>: goodId,</span><br><span class="line">          <span class="attr">user_id</span>: userInfo.id,</span><br><span class="line">          <span class="attr">status</span>: <span class="string">&#x27;1&#x27;</span>, <span class="comment">// -1 已取消, 0 未付款， 1 已付款， 2已退款</span></span><br><span class="line">          <span class="attr">order_type</span>: <span class="string">&#x27;2&#x27;</span>, <span class="comment">// 1 常规订单 2 秒杀订单</span></span><br><span class="line">          <span class="comment">// seckill_id: seckill.id, // 秒杀活动id, redis中不维护秒杀活动id</span></span><br><span class="line">          <span class="attr">comment</span>: <span class="string">&#x27;&#x27;</span>, <span class="comment">// 备注</span></span><br><span class="line">        &#125;;</span><br><span class="line">        <span class="keyword">const</span> order = ordersModel.create(orderData);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (!order) &#123; <span class="keyword">return</span> ctx.throwException(<span class="number">30008</span>, <span class="string">&#x27;抢购失败!&#x27;</span>); &#125;;</span><br><span class="line">      &#125;</span><br><span class="line">    &#125; <span class="keyword">catch</span> (e) &#123;</span><br><span class="line">      <span class="keyword">await</span> redis.eval(unlock, <span class="number">1</span>, [lockKey, uuid]);</span><br><span class="line">      <span class="keyword">return</span> ctx.throwException(<span class="number">30006</span>, <span class="string">&#x27;该产品已经卖完了！&#x27;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    ctx.send(&#123;</span><br><span class="line">      path,</span><br><span class="line">      <span class="attr">data</span>: <span class="string">&#x27;抢购成功!&#x27;</span></span><br><span class="line">    &#125;);</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="built_in">module</span>.exports = <span class="keyword">new</span> Seckill();</span><br></pre></td></tr></table></figure>
+
+<p>这里代码主要做个四个修改：</p>
+<ol>
+<li>步骤2，判断产品是否加入了抢购，改为去<code>Redis</code>中查询</li>
+<li>步骤7，判断登录用户是否已抢到，因为不在维护抢购活动<code>id</code>，所以改为使用用户<code>id</code>、产品<code>id</code>和状态<code>status</code>判断</li>
+<li>步骤8，扣库存，改为使用<code>lua</code>脚本去<code>Redis</code>中扣库存</li>
+<li>对扣库存和写入数据库操作进行加锁</li>
+</ol>
+<p>订单的操作仍然在<code>Mysql</code>数据库中进行，因为大部分的请求都在步骤5被拦截了，剩余请求<code>Mysql</code>是完全有能力处理的。   </p>
+<p>再次通过<code>Jmeter</code>进行测试，发现订单表正常，库存量扣减正常，说明超卖问题和限购已经解决。</p>
+<h2 id="其他问题"><a href="#其他问题" class="headerlink" title="其他问题"></a>其他问题</h2><ol>
+<li>秒杀场景的其他技术<br> 基于<code>Redis</code>支持高并发、键值对型数据库和支持原子操作等特点，案例中使用<code>Redis</code>来作为秒杀应对方案。在更复杂的秒杀场景下，除了使用<code>Redis</code>外，在必要的的情况下还需要用到其他一些技术：<ul>
+<li>限流，用漏斗算法、令牌桶算法等进行限流</li>
+<li>缓存，把热点数据缓存到内存里，尽可能缓解数据库访问的压力</li>
+<li>削峰，使用消息队列和缓存技术使瞬间高流量转变成一段时间的平稳流量，比如客户抢购成功后，立即返回响应，然后通过消息队列异步处理后续步骤，发短信，写日志，更新一致性低的数据库等等</li>
+<li>异步，假设商家创建一个只针对粉丝的秒杀活动，如果商家的粉丝比较少（假设小于1000），那么秒杀活动直接推送给所有粉丝，如果用户粉丝比较多，程序立刻推送给排名前1000的用户，其余用户采用消息队列延迟推送。（1000这个数字需要根据具体情况决定，比如粉丝数2000以内的商家占99%，只有1%的用户粉丝超过2000，那么这个值就应该设置为2000）</li>
+<li>分流，单台服务器不行就上集群，通过负载均衡共同去处理请求，分散压力</li>
+</ul>
+ 这些技术的应用会让整个秒杀系统更加完善，但是核心技术还是<code>Redis</code>，可以说用好<code>Redis</code>实现的秒杀系统就足以应对大部分场景。</li>
+<li><code>Redis</code>健壮性<br> 案例使用的是单机版<code>Redis</code>，单节点在生产环境基本上不会使用，因为<ul>
+<li>不能达到高可用</li>
+<li>即便有着<code>AOF</code>日志和<code>RDB</code>快照的解决方案以保证数据不丢失，但都只能放在<code>master</code>上，一旦机器故障，服务就无法运行，而且即便采取了相应措施仍不可避免的会造成数据丢失。</li>
+</ul>
+ 因此，<code>Redis</code>的主从机制和集群机制在生产环境下是必须的。</li>
+<li><code>Redis</code>分布式锁的问题<ul>
+<li>单点分布式锁，案例提到的分布式锁，实际上更准确的说法是单点分布式锁，是为了方便演示，但是，单点<code>Redis</code>分布式锁是肯定不能用在生产环境的，理由跟第2点类似</li>
+<li>以主从机制（多机器）为基础的分布式锁，也是不够的，因为<code>redis</code>在进行主从复制时是异步完成的，比如在<code>clientA</code>获取锁后，主<code>redis</code>复制数据到从<code>redis</code>过程中崩溃了，导致锁没有复制到从<code>redis</code>中，然后从<code>redis</code>选举出一个升级为主<code>redis</code>，造成新的主<code>redis</code>没有<code>clientA</code>设置的锁，这时<code>clientB</code>尝试获取锁，并且能够成功获取锁，导致互斥失效。</li>
+</ul>
+ 针对以上问题，<code>redis</code>官方设计了<code>Redlock</code>，在<code>Node.js</code>环境下对应的资源库为<code>node-redlock</code>，可以用<code>npm</code>安装，至少需要3个独立的服务器或集群才能使用，提供了非常高的容错率，在生产环境中应该优先采用此方案部署。</li>
+</ol>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>秒杀场景的特点可以总结为瞬时并发访问、读多写少、限时和限量，开发中还要考虑避免超卖现象以及类似黄牛抢票的限购问题，针对以上特点和问题，分析得到开发的原则是：数据写入内存而不是写入硬盘，异步处理而不是同步处理，扣库存操作原子执行以及对单用户购买进行加锁，而<code>Redis</code>正好是符合以上全部特点的工具，因此最终选择<code>Redis</code>来解决问题。</p>
+<p>秒杀场景是一个在电商业务中相对复杂的场景，此篇文章只是介绍了其中最核心的逻辑，实际业务可能更加复杂，但只需要在此核心基础上进行扩展和优化即可。<br>秒杀场景的解决方案不仅仅适合秒杀，类似的还有抢红包、抢优惠券以及抢票等等，思路都是一致的。<br>解决方案的思路还可以应用在单独限购、第二件半价以及控制库存等等诸多场景，大家要灵活运用。</p>
+<h2 id="项目地址"><a href="#项目地址" class="headerlink" title="项目地址"></a>项目地址</h2><p><a target="_blank" rel="noopener" href="https://github.com/threerocks/redis-seckill">https://github.com/threerocks/redis-seckill</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/307421">https://time.geekbang.org/column/article/307421</a><br><a target="_blank" rel="noopener" href="https://redis.io/topics/distlock">https://redis.io/topics/distlock</a></p>
+</div></article></div><div class="right-container"><div class="widget"><div id="arAnchorBar"></div></div></div></section></div><div class="right-menu"></div><div class="modal search-modal"><div class="input-field"><input type="text" id="search_input"><label for="search-input">搜索</label></div><div id="search_result" class="search-result"></div></div><div class="blog-overlay"></div><footer class="row"><div class="footer-con"><div class="paginator"><a href="/2021/06/25/Promise%E7%9F%A5%E8%AF%86%E6%B1%87%E6%80%BB%E4%BB%A5%E5%8F%8A%E9%9D%A2%E8%AF%95%E6%83%85%E5%86%B5/" title="Promise知识汇总以及面试情况" class="prev">PREV</a></div><a href="#comment" class="comment-anchor"></a><div id="vcomments"></div><script>new Valine({
+    el: "#vcomments",
+    appId: "aD8jJBpu4oew3ovNY73z6Rdq-gzGzoHsz",
+    appKey: "FdzS5SOPHdhYQoEUngQ8K2QW",
+    notify: false,
+    verify: false,
+    avatar: "robohash",
+    visitor: true,
+    placeholder: "随便说点什么～.～",
+});</script><div class="copyright"><p>© 2016 - 2021 <a target="_blank">刘小磊</a>, powered by <a href="https://hexo.io/" target="_blank">Hexo</a> <br> and <a href="https://github.com/Bulandent/hexo-theme-bubuzou" target="_blank">hexo-theme-bubuzou</a></p><p> <span style="padding-right: 6px;">闽ICP备16007301号-2</span></p></div><div class="totop"><i></i></div></div></footer><script async src="//cdn.bootcss.com/mathjax/2.6.1/MathJax.js?config=TeX-MML-AM_CHTML"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/jquery-1.8.2.min.js"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/articleCatalog.js"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/main.js"></script><script>(function(b,o,i,l,e,r){b.GoogleAnalyticsObject=l;b[l]||(b[l]=function(){(b[l].q=b[l].q||[]).push(arguments)});b[l].l=+new Date;e=o.createElement(i);r=o.getElementsByTagName(i)[0];e.src='//www.google-analytics.com/analytics.js';r.parentNode.insertBefore(e,r)}(window,document,'script','ga'));ga('create',"UA-65933410-1",'auto');ga('send','pageview');</script><script>const valineAPI = (() => {
+try {
+    AV.init("aD8jJBpu4oew3ovNY73z6Rdq-gzGzoHsz", "FdzS5SOPHdhYQoEUngQ8K2QW");
+} catch(error) {}
+const isExist = (identity) => {
+    identity = identity || getRealPath();
+    let query = new AV.Query('Timer');
+    return new Promise((resolve, reject) => {
+    query.equalTo("identity", identity);
+    query.find().then(results => {
+        resolve(results.length > 0);
+    }, error => reject(error));
+    })
+}
+
+const _get = (identity) => {
+    let query = null;
+    if(identity && identity instanceof Array){
+    let querys = [];
+    for(let i = 0; i < identity.length; ++i) {
+        querys[i] = new AV.Query('Timer');
+        querys[i].equalTo('identity', identity[i]);
+    }
+    query = AV.Query.or.apply(null ,querys);
+    } else {
+    identity = identity || getRealPath();
+    query = new AV.Query("Timer");
+    query.equalTo("identity", identity);
+    }
+
+    return new Promise((resolve, reject) => {
+    query.find()
+    .then(results => resolve(results))
+    .catch(error => reject(error))
+    })
+}
+
+const create = (identity) => {
+    identity = identity || getRealPath();
+    return new Promise((resolve, reject) => {
+    let Todo = AV.Object.extend('Timer');
+    let todo = new Todo();
+    todo.set("times", 1);
+    todo.set("identity", identity);
+    todo.save().then(res => resolve(true), error => reject(error));
+    })
+}
+
+const update = (identity) => {
+    identity = identity || getRealPath();
+    return new Promise((resolve, reject) => {
+    let query = new AV.Query('Timer');
+    query.equalTo("identity", identity);
+    query.find().then(todos => {
+        todos.forEach(todo => {
+        todo.set("times", todo.attributes.times + 1);
+        });
+        return AV.Object.saveAll(todos);
+    }).then(todos => resolve(true), error => reject(error));
+    })
+}
+
+return {
+    isExist,
+    _get,
+    update,
+    create
+}
+})()
+
+const calcAndWriteTimes = () => {
+let isPost = true;
+
+let timerAllDOM = document.querySelectorAll(".article-timer");
+
+if(isPost) {
+    let identity = timerAllDOM[0].getAttribute("data-identity");
+    valineAPI.isExist(identity)
+    .then(exist => {
+    if(exist) {
+        return valineAPI.update(identity);
+    }
+    return new Promise(resolve => resolve(true));
+    })
+    .then( succuess => valineAPI._get(identity))
+    .then( result => timerAllDOM[0].innerText = result[0].attributes.times)
+    .catch(error => console.log(error.message))
+    return ;
+}
+
+let timerDOMCache = {};
+
+for(let timerDOM of timerAllDOM) {
+    let identity = timerDOM.getAttribute("data-identity");
+    if(timerDOMCache.hasOwnProperty(identity)){
+    timerDOMCache[identity].dom.push(timerDOM);
+    }else{
+    timerDOMCache[identity] = {
+        dom: [timerDOM],
+        times: undefined
+    };
+    }
+}
+
+let identities = Object.keys(timerDOMCache);
+valineAPI._get(identities).then(results => {
+    for(let result of results) {
+    let {identity, times} = result.attributes;
+    timerDOMCache[identity].times = times;
+    timerDOMCache[identity].dom.map(item => item.innerText = times);
+    }
+    for(let identity of identities) {
+    if(timerDOMCache[identity].times){
+        continue;
+    }
+    timerDOMCache[identity].dom.map(item => item.innerText = 1);
+    valineAPI.create(identity);
+    }
+}).catch(error => console.log(error.message))
+}
+
+if(true){
+calcAndWriteTimes();
+}</script></body></html>

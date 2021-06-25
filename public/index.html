@@ -1,236 +1,143 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  
+<!DOCTYPE html><html lang="zh-tw,en,default"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><meta name="baidu-site-verification" content="1EB8XoOl0C"><meta name="google-site-verification" content="K7thEgdLm0UfRWJ5MGdF7sCcjClSzAlxFLPv2Oz5CGM"><title> 刘小磊的技术博客</title><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content=""><meta name="keywords"><meta name="author" content="刘小磊"><link rel="short icon" href="https://qiniu2.rrdnyyy.com/blog/a5ktx-bmwk7-002.ico"><link rel="stylesheet" href="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/bubuzou.css"><link rel="search" type="application/opensearchdescription+xml" href="https://threerocks.github.io/atom.xml" title="刘小磊的技术博客"><script src="//cdn1.lncld.net/static/js/3.0.4/av-min.js"></script>
+<script src='//unpkg.com/valine/dist/Valine.min.js'></script><meta name="generator" content="Hexo 5.4.0"><link rel="alternate" href="/atom.xml" title="刘小磊的技术博客" type="application/atom+xml">
+</head><body><header><div class="header row"> <a href="/" class="logo-link"><img src="https://qiniu2.rrdnyyy.com/blog/WechatIMG139.jpg"></a><ul id="nav_list" class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" data-hover="博文" class="nav-list-link">博文</a></li><li class="nav-list-item"><a href="/archives/" target="_self" data-hover="归档" class="nav-list-link">归档</a></li><li class="nav-list-item"><a href="/categories/live/" target="_self" data-hover="生活" class="nav-list-link">生活</a></li><li class="nav-list-item"><a href="/categories/read/" target="_self" data-hover="读书" class="nav-list-link">读书</a></li><li class="nav-list-item"><a href="/about/" target="_self" data-hover="关于" class="nav-list-link">关于</a></li></ul><div class="search"><a id="search_btn" href="#search"></a></div><div id="nav_btn" class="nav-btn"><span></span><span></span><span></span></div></div></header><div class="row scroll-con"><section class="container"><!-- for archive page--><ul class="home post-list"><li class="post-list-item"><article class="post-block"><h2 class="post-title"><a href="/2021/06/25/Promise%E7%9F%A5%E8%AF%86%E6%B1%87%E6%80%BB%E4%BB%A5%E5%8F%8A%E9%9D%A2%E8%AF%95%E6%83%85%E5%86%B5/" class="post-title-link">Promise知识汇总以及面试情况</a></h2><div class="post-info">2021-06-25<p class="visit"><i data-identity="2021/06/25/Promise知识汇总以及面试情况/" class="article-timer"></i><span>次访问</span></p></div><div class="post-content"><h2 id="写在前面"><a href="#写在前面" class="headerlink" title="写在前面"></a>写在前面</h2><p>Javascript异步编程先后经历了四个阶段，分别是Callback阶段，Promise阶段，Generator阶段和Async/Await阶段。Callback很快就被发现存在回调地狱和控制权问题，Promise就是在这个时间出现，用以解决这些问题，Promise并非一个新事务，而是按照一个规范实现的类，这个规范有很多，如 Promise/A，Promise/B，Promise/D 以及 Promise/A 的升级版 Promise/A+，最终 ES6 中采用了 <a target="_blank" rel="noopener" href="https://promisesaplus.com/">Promise/A+</a> 规范。后来出现的Generator函数以及Async函数也是以Promise为基础的进一步封装，可见Promise在异步编程中的重要性。   </p>
+<p>关于Promise的资料已经很多，但每个人理解都不一样，不同的思路也会有不一样的收获。这篇文章会着重写一下Promise的实现以及笔者在日常使用过程中的一些心得体会。</p></div><a href="/2021/06/25/Promise%E7%9F%A5%E8%AF%86%E6%B1%87%E6%80%BB%E4%BB%A5%E5%8F%8A%E9%9D%A2%E8%AF%95%E6%83%85%E5%86%B5/" class="read-more">...more</a></article></li><li class="post-list-item"><article class="post-block"><h2 class="post-title"><a href="/2021/06/25/Redis%E5%BA%94%E7%94%A8%E5%AE%9E%E6%88%98%20-%20%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%EF%BC%88Node.js%E7%89%88%E6%9C%AC%EF%BC%89/" class="post-title-link">Redis应用实战 - 秒杀场景（Node.js版本）</a></h2><div class="post-info">2021-06-25<p class="visit"><i data-identity="2021/06/25/Redis应用实战 - 秒杀场景（Node.js版本）/" class="article-timer"></i><span>次访问</span></p></div><div class="post-content"><h2 id="写在前面"><a href="#写在前面" class="headerlink" title="写在前面"></a>写在前面</h2><p>公司随着业务量的增加，最近用时几个月时间在项目中全面接入<code>Redis</code>，开发过程中发现市面上缺少具体的实战资料，尤其是在<code>Node.js</code>环境下，能找到的资料要么过于简单入门，要么名不副实，大部分都是属于初级。因此决定把公司这段时间的成果进行分享，会用几篇文章详细介绍<code>Redis</code>的几个使用场景，期望大家一起学习、进步。<br>下面就开始第一篇，秒杀场景。</p>
+<h2 id="业务分析"><a href="#业务分析" class="headerlink" title="业务分析"></a>业务分析</h2><p>实际业务中，秒杀包含了许多场景，具体可以分为秒杀前、秒杀中和秒杀后三个阶段，从开发角度具体分析如下：</p>
+<ol>
+<li>秒杀前：主要是做好缓存工作，以应对用户频繁的访问，因为数据是固定的，可以把商品详情页的元素静态化，然后用<code>CDN</code>或者是浏览器进行缓存。</li>
+<li>秒杀中：主要是库存查验，库存扣减和订单处理，这一步的特点是<ul>
+<li>短时间内大量用户同时进行抢购，系统的流量突然激增，服务器压力瞬间增大（瞬时并发访问高）</li>
+<li>请求数量大于商品库存，比如10000个用户抢购，但是库存只有100</li>
+<li>限定用户只能在一定时间段内购买</li>
+<li>限制单个用户购买数量，避免刷单</li>
+<li>抢购是跟数据库打交道，核心功能是下单，库存不能扣成负数</li>
+<li>对数据库的操作读多写少，而且读操作相对简单</li>
+</ul>
+</li>
+<li>秒杀后：主要是一些用户查看已购订单、处理退款和处理物流等等操作，这时候用户请求量已经下降，操作也相对简单，服务器压力不大。</li>
+</ol>
+<p>根据上述分析，本文把重点放在秒杀中的开发讲解，其他部分感兴趣的小伙伴可以自己搜索资料，进行尝试。</p>
+<h2 id="开发环境"><a href="#开发环境" class="headerlink" title="开发环境"></a>开发环境</h2><p>数据库：<code>Redis 3.2.9</code> + <code>Mysql 5.7.18</code><br>服务器：<code>Node.js v10.15.0</code><br>测试工具：<code>Jmeter-5.4.1</code></p></div><a href="/2021/06/25/Redis%E5%BA%94%E7%94%A8%E5%AE%9E%E6%88%98%20-%20%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%EF%BC%88Node.js%E7%89%88%E6%9C%AC%EF%BC%89/" class="read-more">...more</a></article></li></ul><div class="right-container"><div class="widget"><div class="category"><h4>分类归档</h4></div></div><div class="widget"><div class="tagcloud"><h4>标签云</h4><a href="/tags/ES6/" style="font-size: 10px;">ES6</a> <a href="/tags/Javascript/" style="font-size: 20px;">Javascript</a> <a href="/tags/Mysql/" style="font-size: 10px;">Mysql</a> <a href="/tags/Node-js/" style="font-size: 20px;">Node.js</a> <a href="/tags/Promise/" style="font-size: 10px;">Promise</a> <a href="/tags/Redis/" style="font-size: 10px;">Redis</a> <a href="/tags/%E5%BC%82%E6%AD%A5/" style="font-size: 10px;">异步</a> <a href="/tags/%E7%A7%92%E6%9D%80/" style="font-size: 10px;">秒杀</a></div></div><div class="widget"><div class="recent"><h4>最近文章</h4><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2021/06/25/Promise%E7%9F%A5%E8%AF%86%E6%B1%87%E6%80%BB%E4%BB%A5%E5%8F%8A%E9%9D%A2%E8%AF%95%E6%83%85%E5%86%B5/">Promise知识汇总以及面试情况</a></li><li class="post-list-item"><a class="post-list-link" href="/2021/06/25/Redis%E5%BA%94%E7%94%A8%E5%AE%9E%E6%88%98%20-%20%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%EF%BC%88Node.js%E7%89%88%E6%9C%AC%EF%BC%89/">Redis应用实战 - 秒杀场景（Node.js版本）</a></li></ul></div></div></div></section></div><div class="right-menu"></div><div class="modal search-modal"><div class="input-field"><input type="text" id="search_input"><label for="search-input">搜索</label></div><div id="search_result" class="search-result"></div></div><div class="blog-overlay"></div><footer class="row"><div class="footer-con"><div class="paginator"></div><div class="copyright"><p>© 2016 - 2021 <a target="_blank">刘小磊</a>, powered by <a href="https://hexo.io/" target="_blank">Hexo</a> <br> and <a href="https://github.com/Bulandent/hexo-theme-bubuzou" target="_blank">hexo-theme-bubuzou</a></p><p> <span style="padding-right: 6px;">闽ICP备16007301号-2</span></p></div><div class="totop"><i></i></div></div></footer><script async src="//cdn.bootcss.com/mathjax/2.6.1/MathJax.js?config=TeX-MML-AM_CHTML"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/jquery-1.8.2.min.js"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/articleCatalog.js"></script><script src="https://bubuzou.oss-cn-shenzhen.aliyuncs.com/blog/202010/main.js"></script><script>(function(b,o,i,l,e,r){b.GoogleAnalyticsObject=l;b[l]||(b[l]=function(){(b[l].q=b[l].q||[]).push(arguments)});b[l].l=+new Date;e=o.createElement(i);r=o.getElementsByTagName(i)[0];e.src='//www.google-analytics.com/analytics.js';r.parentNode.insertBefore(e,r)}(window,document,'script','ga'));ga('create',"UA-65933410-1",'auto');ga('send','pageview');</script><script>const valineAPI = (() => {
+try {
+    AV.init("aD8jJBpu4oew3ovNY73z6Rdq-gzGzoHsz", "FdzS5SOPHdhYQoEUngQ8K2QW");
+} catch(error) {}
+const isExist = (identity) => {
+    identity = identity || getRealPath();
+    let query = new AV.Query('Timer');
+    return new Promise((resolve, reject) => {
+    query.equalTo("identity", identity);
+    query.find().then(results => {
+        resolve(results.length > 0);
+    }, error => reject(error));
+    })
+}
 
-  
-  <title>Hexo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="Hexo">
-<meta property="og:url" content="http://example.com/index.html">
-<meta property="og:site_name" content="Hexo">
-<meta property="og:locale" content="en_US">
-<meta property="article:author" content="John Doe">
-<meta name="twitter:card" content="summary">
-  
-    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
-  
-  
-    <link rel="icon" href="/favicon.png">
-  
-  
-    <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
-  
-  
-<link rel="stylesheet" href="/css/style.css">
+const _get = (identity) => {
+    let query = null;
+    if(identity && identity instanceof Array){
+    let querys = [];
+    for(let i = 0; i < identity.length; ++i) {
+        querys[i] = new AV.Query('Timer');
+        querys[i].equalTo('identity', identity[i]);
+    }
+    query = AV.Query.or.apply(null ,querys);
+    } else {
+    identity = identity || getRealPath();
+    query = new AV.Query("Timer");
+    query.equalTo("identity", identity);
+    }
 
-<meta name="generator" content="Hexo 5.4.0"></head>
+    return new Promise((resolve, reject) => {
+    query.find()
+    .then(results => resolve(results))
+    .catch(error => reject(error))
+    })
+}
 
-<body>
-  <div id="container">
-    <div id="wrap">
-      <header id="header">
-  <div id="banner"></div>
-  <div id="header-outer" class="outer">
-    <div id="header-title" class="inner">
-      <h1 id="logo-wrap">
-        <a href="/" id="logo">Hexo</a>
-      </h1>
-      
-    </div>
-    <div id="header-inner" class="inner">
-      <nav id="main-nav">
-        <a id="main-nav-toggle" class="nav-icon"></a>
-        
-          <a class="main-nav-link" href="/">Home</a>
-        
-          <a class="main-nav-link" href="/archives">Archives</a>
-        
-      </nav>
-      <nav id="sub-nav">
-        
-          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
-        
-        <a id="nav-search-btn" class="nav-icon" title="Search"></a>
-      </nav>
-      <div id="search-form-wrap">
-        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
-      </div>
-    </div>
-  </div>
-</header>
-      <div class="outer">
-        <section id="main">
-  
-    <article id="post-测试博客" class="article article-type-post" itemscope itemprop="blogPost">
-  <div class="article-meta">
-    <a href="/2021/06/25/%E6%B5%8B%E8%AF%95%E5%8D%9A%E5%AE%A2/" class="article-date">
-  <time datetime="2021-06-25T07:32:21.000Z" itemprop="datePublished">2021-06-25</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="article-title" href="/2021/06/25/%E6%B5%8B%E8%AF%95%E5%8D%9A%E5%AE%A2/">测试博客</a>
-    </h1>
-  
+const create = (identity) => {
+    identity = identity || getRealPath();
+    return new Promise((resolve, reject) => {
+    let Todo = AV.Object.extend('Timer');
+    let todo = new Todo();
+    todo.set("times", 1);
+    todo.set("identity", identity);
+    todo.save().then(res => resolve(true), error => reject(error));
+    })
+}
 
-      </header>
-    
-    <div class="article-entry" itemprop="articleBody">
-      
-        
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="http://example.com/2021/06/25/%E6%B5%8B%E8%AF%95%E5%8D%9A%E5%AE%A2/" data-id="ckqc1ho6o0001h1zbg9n5fgyk" class="article-share-link">Share</a>
-      
-      
-    </footer>
-  </div>
-  
-</article>
+const update = (identity) => {
+    identity = identity || getRealPath();
+    return new Promise((resolve, reject) => {
+    let query = new AV.Query('Timer');
+    query.equalTo("identity", identity);
+    query.find().then(todos => {
+        todos.forEach(todo => {
+        todo.set("times", todo.attributes.times + 1);
+        });
+        return AV.Object.saveAll(todos);
+    }).then(todos => resolve(true), error => reject(error));
+    })
+}
 
+return {
+    isExist,
+    _get,
+    update,
+    create
+}
+})()
 
-  
-    <article id="post-hello-world" class="article article-type-post" itemscope itemprop="blogPost">
-  <div class="article-meta">
-    <a href="/1985/10/26/hello-world/" class="article-date">
-  <time datetime="1985-10-26T08:15:00.000Z" itemprop="datePublished">1985-10-26</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="article-title" href="/1985/10/26/hello-world/">Hello World</a>
-    </h1>
-  
+const calcAndWriteTimes = () => {
+let isPost = false;
 
-      </header>
-    
-    <div class="article-entry" itemprop="articleBody">
-      
-        <p>Welcome to <a target="_blank" rel="noopener" href="https://hexo.io/">Hexo</a>! This is your very first post. Check <a target="_blank" rel="noopener" href="https://hexo.io/docs/">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a target="_blank" rel="noopener" href="https://hexo.io/docs/troubleshooting.html">troubleshooting</a> or you can ask me on <a target="_blank" rel="noopener" href="https://github.com/hexojs/hexo/issues">GitHub</a>.</p>
-<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo new <span class="string">&quot;My New Post&quot;</span></span><br></pre></td></tr></table></figure>
+let timerAllDOM = document.querySelectorAll(".article-timer");
 
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/writing.html">Writing</a></p>
-<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></table></figure>
+if(isPost) {
+    let identity = timerAllDOM[0].getAttribute("data-identity");
+    valineAPI.isExist(identity)
+    .then(exist => {
+    if(exist) {
+        return valineAPI.update(identity);
+    }
+    return new Promise(resolve => resolve(true));
+    })
+    .then( succuess => valineAPI._get(identity))
+    .then( result => timerAllDOM[0].innerText = result[0].attributes.times)
+    .catch(error => console.log(error.message))
+    return ;
+}
 
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/server.html">Server</a></p>
-<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></table></figure>
+let timerDOMCache = {};
 
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/generating.html">Generating</a></p>
-<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></table></figure>
+for(let timerDOM of timerAllDOM) {
+    let identity = timerDOM.getAttribute("data-identity");
+    if(timerDOMCache.hasOwnProperty(identity)){
+    timerDOMCache[identity].dom.push(timerDOM);
+    }else{
+    timerDOMCache[identity] = {
+        dom: [timerDOM],
+        times: undefined
+    };
+    }
+}
 
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/one-command-deployment.html">Deployment</a></p>
+let identities = Object.keys(timerDOMCache);
+valineAPI._get(identities).then(results => {
+    for(let result of results) {
+    let {identity, times} = result.attributes;
+    timerDOMCache[identity].times = times;
+    timerDOMCache[identity].dom.map(item => item.innerText = times);
+    }
+    for(let identity of identities) {
+    if(timerDOMCache[identity].times){
+        continue;
+    }
+    timerDOMCache[identity].dom.map(item => item.innerText = 1);
+    valineAPI.create(identity);
+    }
+}).catch(error => console.log(error.message))
+}
 
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="http://example.com/1985/10/26/hello-world/" data-id="ckqc1ho6k0000h1zbdf7q4cio" class="article-share-link">Share</a>
-      
-      
-    </footer>
-  </div>
-  
-</article>
-
-
-  
-
-
-</section>
-        
-          <aside id="sidebar">
-  
-    
-
-  
-    
-
-  
-    
-  
-    
-  <div class="widget-wrap">
-    <h3 class="widget-title">Archives</h3>
-    <div class="widget">
-      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">June 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/1985/10/">October 1985</a></li></ul>
-    </div>
-  </div>
-
-
-  
-    
-  <div class="widget-wrap">
-    <h3 class="widget-title">Recent Posts</h3>
-    <div class="widget">
-      <ul>
-        
-          <li>
-            <a href="/2021/06/25/%E6%B5%8B%E8%AF%95%E5%8D%9A%E5%AE%A2/">测试博客</a>
-          </li>
-        
-          <li>
-            <a href="/1985/10/26/hello-world/">Hello World</a>
-          </li>
-        
-      </ul>
-    </div>
-  </div>
-
-  
-</aside>
-        
-      </div>
-      <footer id="footer">
-  
-  <div class="outer">
-    <div id="footer-info" class="inner">
-      &copy; 2021 John Doe<br>
-      Powered by <a href="http://hexo.io/" target="_blank">Hexo</a>
-    </div>
-  </div>
-</footer>
-    </div>
-    <nav id="mobile-nav">
-  
-    <a href="/" class="mobile-nav-link">Home</a>
-  
-    <a href="/archives" class="mobile-nav-link">Archives</a>
-  
-</nav>
-    
-
-<script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
-
-
-  
-<link rel="stylesheet" href="/fancybox/jquery.fancybox.css">
-
-  
-<script src="/fancybox/jquery.fancybox.pack.js"></script>
-
-
-
-
-<script src="/js/script.js"></script>
-
-
-
-
-  </div>
-</body>
-</html>
+if(true){
+calcAndWriteTimes();
+}</script></body></html>
